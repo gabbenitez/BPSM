@@ -1,0 +1,359 @@
+#!/bin/python3
+
+#we import the modules to be used
+import os, subprocess, sys, re, time, webbrowser
+import numpy as np
+import pandas as pd
+
+#we make a folder for our files and navigate there
+if not os.path.exists("blast"):
+        os.mkdir("blast")
+os.chdir("blast")
+
+#we set up a function to get data input type
+def gettype(what):
+	if what == "1":
+		return "protein"
+	if what == "2":
+		return "nucleotide"
+
+#we set up a function to count the number of results
+def countresult(text):
+	result = re.search('<Count>(.*)</Count>', text)
+	return result.group(1) 	
+
+
+#introductory lines
+print("Welcome to B120271\'s BLAST Analysis Tool")
+
+
+#print statements to let the user know what the program does
+print("\nThe program BLASTs your query against a database of your choice")
+print("\nYour query can be a search term or a fasta file in the folder you run this program")
+print("\nIf using a fasta file, please rename to \'query.fasta\' prior to analysis")
+print("\nDefault database: DNA - Plasmodium Simium")
+
+#begin loop
+i = 1
+
+while i == 1:
+	#receive input for query
+	a = 1
+	while a == 1: 
+		qtype = input("Please input query type of interest:\n[1] Protein\n[2] DNA\n")	
+	
+	#error traps for input to ensure correct option is pressed
+		if qtype == "1":
+			a = 2
+		elif qtype == "2":
+			a = 2
+		else: 
+			print("Please select one of the options\n")
+			a = 1
+	#getting the query		
+	c = 1
+	while c == 1:
+		que = input("What format is your query?\n[1] Search\n[2] fasta file\n")
+		if que == "1":
+			query = input("Please input query:\n")
+			c = 2
+		elif que == "2":
+		#in case the user wants to use a fasta file as query
+			print("Using fasta file provided")
+			query = open("query.fasta").read()
+			c = 2
+		else:
+			print("Please select one of the options\n")
+			c = 1
+
+
+
+	#receive input for db
+	dbtype = input("\nPlease input database type of interest:\n[1] Protein\n[2] DNA\n[OTHER] Default\n")
+        
+	#we give default option here as else
+	if dbtype == "1":
+		db = input("Please input database sequence:  ")
+		b = 2
+	elif dbtype == "2":
+		db = input("Please input database sequence:  ")
+		b = 2
+	else:
+		print("Using default database, DNA - Plasmodium Simium")
+		dbtype = "2"
+		db = "plasmodium simium"
+		b = 2
+
+	#we make a dictionary for the inputs
+	qtype = gettype(qtype)
+	dbtype = gettype (dbtype)
+	dict = {query:qtype, db:dbtype}
+
+	print("Searching NCBI databases...")
+
+	#we copy the variables to our -nix environment for our subprocess commands
+	current_env = os.environ.copy()
+
+	current_env ["qtype"] = qtype
+	current_env ["query"] = query
+	current_env ["dbtype"] = dbtype
+	current_env ["db"] = db
+
+	#we search for the query
+	subprocess.call('esearch -db $qtype -query "$query" > query.txt',\
+	env = current_env, shell=True)
+
+	#we let the user know the returned results
+	wow = countresult(open("query.txt").read())
+	print ("The number of results for your query is: ", wow)
+	wow = int(wow)
+
+	#warnings statements in case of bad results
+	if wow > 250:
+		print("WARNING!\nEasy there cowboy, looks like you've got a lot of sequences in your query! Might be wise to try another search...")	
+	elif wow < 5:
+		print("Low number of sequences found, maybe think about broadening your search;)")
+	else:
+		print("...")
+
+	#we search for the database
+	subprocess.call('esearch -db $dbtype -query "$db" > db.txt',\
+	env = current_env, shell=True)
+	
+	#we let the user know the returned results
+	wow = countresult(open("db.txt").read())
+	print ("The number of results for your database is: ", wow)
+	wow = int(wow)
+
+	#warning statements in case of bad results
+	if wow > 250:
+		print ("WARNING!\nIt\'s looking like your database is a quite big - this might take a while to download")
+	elif wow < 5: 
+		print("Thats a very small database, maybe think about broadening your database terms... ;)")
+	else:
+		print("...")
+
+
+	#let the user decide to proceed or redo queries
+	b = 1
+	while b == 1:
+		next = input("Would you like to continue or redefine your queries?\n[1] Continue\n[2] Redefine queries\n")
+		if next == "1":
+			#exit loop
+			i = 2
+			b = 2
+			print ("\nProceeding with BLAST analysis")
+		elif next == "2":
+			#exit the loop
+			i = 1
+			b = 2
+			print ("\nRedefining Queries...")
+		else:
+			print ("\nPlease select one of the options")
+			b = 1
+
+
+#####################
+
+## WILDCARDS options ##
+
+######################
+
+print("Would you like to explore other wildcard analysis with your data or proceed with default settings?")
+
+#we make a series of loops with our wildcard options at each stage
+
+wildcard = input ("[1] View wildcards\n[OTHER] Default Settings\n")
+if wildcard == "1":
+	wildout = input("Change output format?\n[1] Yes\n[OTHER] Default\n")
+	if wildout == "1":
+		#takes user inputs into a string and uses at outfmt flag when blasting
+		print("\nUsing non-default format")
+		outfmt = input("\nRefer to BLAST manual, and input kwargs of choice:\n")
+		current_env ["outfmt"]=str(outfmt)
+	else:
+		#retains default option for outfmt flag in blast
+		outfmt = "6"
+		current_env ["outfmt"]=outfmt
+		subprocess.call('echo Using default format $outfmt', env = current_env, shell=True)		
+	
+	wildsort = input("Sort files into folders?\n[1] No\n[OTHER] Yes, default\n")
+	#we retain this variable for later use
+	if wildsort == "1":
+		print ("Files left unsorted\n")
+		wildsort = "0"
+	else:
+		print ("Sorting files post-analysis\n")
+		wildsort = "1"
+	
+	#wildcard for opening output after processing
+	#we retain this value for later	
+	wildopen = input("Open BLAST output after processing?\n[1] No\n[OTHER] Yes, default\n")
+	#for opening the file at the end
+	if wildopen == "1":
+		print ("BLAST output will not be opened")
+		wildopen = "0"
+	else:
+		print("Opening output after processing\n")
+		wildopen = "1"
+
+	#wildcard for extracting top 10 hits
+	#we retain this value for later
+	wildtop = input ("Extract top 10 hits after processing?\n[1] No\n[OTHER] Yes, default\n")
+	if wildtop == "1":
+		print ("Not extracting top 10 hits\n")
+		wildtop = "0"
+	else:
+		print ("Extracting top 10 hits\n")
+		wildtop = "1"
+
+
+else:
+	#in case defaults are used we use these variables
+	print("\nUsing default settings")
+	outfmt = "6"
+	current_env ["outfmt"]=outfmt
+	subprocess.call('echo Default format: $outfmt', env = current_env, shell=True)
+	wildsort = "1"
+	wildopen = "1"
+	wildtop = "1"
+
+#################
+## BLAST setup ##
+#################
+
+#user inputs no longer needed they can take a break if they want here
+print("Processing stage about to begin, feel free to take a break and grab some tea or coffee\n")
+#time.sleep(5)
+
+#we get the fasta of the database
+print("Fetching database, please be patient...")
+
+#using our variables from earlier to get the database sequences
+subprocess.call('esearch -db $dbtype -query "$db" |\
+efetch -format fasta > database.fasta'\
+,env = current_env, shell=True)
+
+print("Database successfully downloaded!")
+
+
+#we do the same for the query
+print("Downloading query, please be patient...")
+
+subprocess.call('esearch -db $qtype -query "$query" |\
+efetch -format fasta > query.fasta'\
+,env = current_env, shell=True)
+
+print("Query successfuly downloaded!")
+
+
+#make a blastdatabase, depending on format which we use our type variables for
+if dbtype == 'protein':
+	subprocess.call('makeblastdb -in database.fasta -dbtype prot -out reference', shell=True)
+elif dbtype == 'nucleotide':
+	subprocess.call('makeblastdb -in database.fasta -dbtype nucl -out reference', shell=True)
+
+print("\nReference database successfully created")
+
+
+
+
+###########
+
+## BLAST ##
+
+###########
+
+#blast our query against our reference depending on our inputs
+
+#a joke that i hope is appreciated
+print("BLAST-ing off with your data...")
+print("Processing your data through BLAST")
+
+#depending on the inputs we choose the appropriate flavour of blast
+#see pdf for the matrix
+if dbtype == 'protein':
+	if qtype == 'protein':
+		subprocess.call('blastp -db reference -query query.fasta -num_threads 50 -outfmt $outfmt > blastoutput.out', env = current_env, shell=True)
+
+	elif qtype == 'nucleotide':
+		subprocess.call('blastx -db reference -query query.fasta -num_threads 50 -outfmt $outfmt > blastoutput.out', env = current_env, shell=True)
+
+elif dbtype == 'nucleotide':
+	if qtype == 'protein':
+		subprocess.call('tblastn -db reference -query query.fasta -num_threads 50 -outfmt $outfmt > blastoutput.out', env = current_env, shell=True)
+	
+	elif qtype == 'nucleotide':
+		subprocess.call('blastn -db reference -query query.fasta -num_threads 50 -outfmt $outfmt > blastoutput.out', env = current_env, shell=True)
+
+#another pun and representing EDinburgh
+print("\nYour query has been BLAST-ed")
+
+
+## wild card processing ##
+ 
+#the wildcard variables are used here
+
+#wildcard for sorting files
+if wildsort == "1":
+	print("Wildcard: Sorting files...")
+	#we make a directory for files used to make the database
+	if not os.path.exists ("database"):
+		os.mkdir("database")
+	#we move relevant files there
+		subprocess.call('mv database.fasta db.txt reference* database', shell=True)
+	
+	#same concept for query files
+	if not os.path.exists("query"):
+		os.mkdir("query")
+		subprocess.call('mv query.fasta query.txt query', shell=True)
+
+#wildcard for opening files
+if wildopen == "1":
+	print("Opening BLAST output...")
+	#we get the file we wish to open 
+	url = "blastoutput.out"
+	#we open the file using the webbrowser module
+	webbrowser.open(url, new=2)
+
+
+#wildcard for extracting top 10 hits
+if wildtop == "1":
+	print("Extracting top 10 hits...")
+	#getting our blast into a pandas dataframe
+	df = pd.read_table('blastoutput.out', header=None)
+	#we sort out the column names
+	default_outfmt6_cols = 'qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore'.strip().split(' ')
+	df.columns = default_outfmt6_cols
+	#filter for pident >= 99.0 and evalue <= 0.001
+	df_filtered = df[(df['pident'] >= 99.0) & (df['evalue'] <= 0.001)]
+
+	#df_filtered contains only hits with >= 99.0% identity and e-value <= 0.001
+
+	#sort by bitscore
+	df_filtered.sort_values(by='bitscore', ascending=False, inplace=True)
+
+	#df_filtered is now sorted by bitscore in descending order
+	top10_query_ids = df_filtered['qseqid'][0:10]
+	
+	#we write out this data to a new text file
+	#convert the top10 to string
+	text = str(top10_query_ids)
+	#open a new document to write to
+	f = open("top10.txt", "w")
+	#write it out
+	f.write(text)
+	f.close()
+	
+	#opening it for the user to read!
+
+
+#final finishing statements
+print("Analysis finishED\nFiles located in \'BLAST\' folder")
+print("BLAST output saved as \'blastoutput.out\'")
+
+#if the top 10 file was made print information
+if wildtop == "1":
+	print ("Top 10 hits saved as \'top10.txt\'")
+
+print("DONE")

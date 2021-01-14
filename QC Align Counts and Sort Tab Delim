@@ -1,0 +1,188 @@
+#!/bin/bash
+
+#fetch necessary files
+cp -avr /localdisk/data/BPSM/Assignment1/fastq ~/Assignment1
+
+
+#######
+## 1 ## QC of raw data using fastqc
+#######
+
+
+# unzip all gunzipped files to our new directory
+# use fastqc to process the unzipped data
+# moves files associated with quality to folder for quality
+mkdir ~/Assignment1/quality
+cd ~/Assignment1/fastq
+gunzip -v *.gz
+fastqc -t 100 -q --extract *.fq
+rm -fr *.zip
+mv *fastqc* ~/Assignment1/quality
+
+echo "Data succesfully unzipped and processed through fastqc"
+echo "Proceeding with quality control assessment..."
+
+
+#######
+## 2 ## Assess numbers and quality based on output
+#######
+
+
+#print number of lines for all fq files and divide by 4
+echo the total number of unfiltered reads is
+cat *.fq | echo $((`wc -l`/4))
+
+#print number of Ns present in reads
+echo the total number of unknown reads is
+sed -n '1d;N;N;N;P;d' *.fq | tr -cd N | wc -m
+
+cd ~/Assignment1/quality
+
+#sum of search in all summary files for the string PASS
+echo the total number of PASSED tests is
+cat **/*summary.txt | grep "PASS" | wc -l
+
+#sum of search in all summary files for the string FAIL
+echo the total number of FAILED tests is  
+cat **/*summary.txt | grep "FAIL" | wc -l 
+
+#conditional to proceed with the rest of the script
+echo "Quality Control Complete"
+echo "If significant number of fails, advised to not proceed"
+echo "Use specialised tools such as trimmomatic/cutadapt to decrease number of fails"
+
+#countdown from 10 seconds
+#if anything pressed exit operation
+for (( i=20; i>0; i--)); do
+    printf "\rResuming analysis in $i seconds. Press any key to exit."
+    read -s -n 1 -t 1 key
+    if [ $? -eq 0 ]
+    then
+        exit
+    fi
+done
+
+echo "Continuing Analysis..."
+
+
+
+#######
+## 3 ## Align reads via bowtie2 or hisat2
+#######
+
+
+#acquire T. brucei genome sequence and unzip
+cp -avr /localdisk/data/BPSM/Assignment1/Tbb_genome/ ~/Assignment1/fastq/
+cd ~/Assignment1/fastq/Tbb_genome/
+gunzip *.gz
+
+#build database to align our reads to and clean up the directory
+bowtie2-build -f Tb927_genome.fasta Tb
+mv *Tb* ~/Assignment1/fastq
+cd ..
+rm -fr Tbb_genome
+cd ~/Assignment1/fastq/
+
+#loop through all reads, in their pairs using the prefix as a unique identifier
+#perform bowtie function for each pair using previously generated Tb files as reference
+#convert each bam output to sam file maintaining identifier
+#create index bam output for each paired read
+for prefix in $(ls *.fq | sed -r 's/_L8_[12].fq//' | uniq)
+do
+bowtie2 -tp 100THREADS -x Tb -1 ${prefix}_L8_1.fq -2 ${prefix}_L8_2.fq -S ${prefix}_output.sam
+samtools view -S -b ${prefix}_output.sam |
+samtools sort ${prefix}_output.sam > ${prefix}_output.bam
+samtools index ${prefix}_output.bam
+done
+
+echo "Reads aligned to Tbb genome index via bowtie2"
+echo "Generating counts data..."
+
+
+#######
+## 4 ## Generate counts data
+#######
+
+
+#get data
+cp -avr /localdisk/data/BPSM/Assignment1/Tbbgenes.bed ~/Assignment1/fastq/
+
+#using prefix for each read as a unique identifier
+#generate counts for the number of aligned sequences from each unique bam file
+#aligned to genes specified by the bed file
+for prefix in $(ls *.fq | sed -r 's/_L8_[12].fq//' | uniq)
+do
+bedtools multicov -bams ${prefix}_output.bam -bed Tbbgenes.bed > ${prefix}_counts.txt
+done
+
+echo "Counts data generated"
+echo "Generating report of average counts per gene per group"
+
+
+#######
+## 5 ## Generate tab delimited text file with mean of counts per gene for each group
+#######
+
+
+cd ~/Assignment1/fastq/
+
+#print all genes from column 4 of the bed file to the files here
+awk '{FS="\t"; {print $4;}}' Tbbgenes.bed > report_temp.txt
+awk '{FS="\t"; {print $4;}}' Tbbgenes.bed > slender_temp.txt
+awk '{FS="\t"; {print $4;}}' Tbbgenes.bed > stumpy_temp.txt
+
+#in the fqfile
+#if the read belongs to the slender or stumpy group specified in column 2
+#print the unique identifier from column 1
+#use this identifier to print the number of alignments in column 7 of the counts file
+#and into a new unique file containing a single column with the counts
+for prefix in $(awk '($2 == "Slender") {print $1}' fqfiles| uniq)
+do 
+awk '{FS="\t"; {print $7;}}' ${prefix}_counts.txt > ${prefix}temp_slender.txt
+done
+
+for  prefix in $(awk '($2 == "Stumpy") {print $1}' fqfiles| uniq)
+do
+awk '{FS="\t"; {print $7;}}' ${prefix}_counts.txt > ${prefix}temp_stumpy.txt
+done
+
+
+#append all columns for each group into file with gene names
+paste slender_temp.txt *temp_slender.txt > all_slender.txt
+paste stumpy_temp.txt *temp_stumpy.txt > all_stumpy.txt
+
+#ignoring column one, which has all the gene names
+#take the average of all subsequent columns
+#write the value out for each row into a new column in a new text file
+awk '{ T=0
+           for(N=2; N<=NF; N++) T+=$N;
+           T/=(NF-1)
+           print $1, T }' all_slender.txt > temp_avg_slender.txt
+awk '{print $2}' temp_avg_slender.txt > average_slender.txt
+
+#same for the stumpy group
+awk '{ T=0
+           for(N=2; N<=NF; N++) T+=$N;
+           T/=(NF-1)
+           print $1, T }' all_stumpy.txt > temp_avg_stumpy.txt
+awk '{print $2}' temp_avg_stumpy.txt > average_stumpy.txt
+
+#paste the columns of averages together into the report with the gene names in col 1
+#and output to the final report
+paste report_temp.txt *average_* > final_report.txt
+
+#add header to temporary file
+#pipe the final report below temporary file
+#and move it all back again to the final report file
+echo -e "GeneName\tSlender\tStumpy" | 
+cat - final_report.txt > /tmp/out && mv /tmp/out final_report.txt
+
+#nice formatting
+column -t $'\t' final_report.txt
+
+#cleaning up the directory
+rm -fr *temp*
+mv final_report.txt ~/Assignment1/
+
+echo "Report saved as "final_report.txt""
+echo "Analysis complete"
